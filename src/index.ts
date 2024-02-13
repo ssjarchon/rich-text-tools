@@ -1,0 +1,1 @@
+export { setSettings, ReplaceInHTML } from './HTMLparser';

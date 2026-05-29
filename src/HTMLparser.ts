@@ -3,7 +3,7 @@ import { antiRecursiveReferenceGenerator } from "./antiRecursiveReferenceGenerat
 import { RegularExpressions } from "./regularExpressions";
 import { extractAttributes } from "./extractors";
 import { Settings, defaultSettings } from "./settings";
-import diff from 'diff';
+import * as diff from 'diff';
 
 let currentSettings: Settings = defaultSettings;
 
@@ -21,7 +21,7 @@ const HTMLToSegments = (html: string): RootSegment => {
     let currentPath: string = '';
     let lastSegment: RootSegment|TagSegment = root;
     
-    html.split(RegularExpressions.Tag).forEach((segment, idx) => {
+    html.split(RegularExpressions.TagSplit).forEach((segment, idx) => {
         // tag node
         const tagName = segment.match(RegularExpressions.TagName);
         if(tagName){
@@ -74,7 +74,7 @@ const segmentsToHTML = (root: RootSegment | TagSegment) => {
     let html = '';
     root.children.forEach(segment => {
         if(segment.type === 'text'){
-            html += segment.children.join('');
+            html += segment.text;
         }
         else{
             html += `<${segment.name}${Object.entries(segment.attributes).length?' ':''}${Object.entries(segment.attributes).filter(([key])=>key).map(([key, value])=>(value?`${key}="${value}"`:key)).join(' ')} ${segment.children.length === 0 ? currentSettings.input.voidElements.includes(segment.name) ? currentSettings.output.xmlMode : '/' :'' }>${segmentsToHTML(segment as TagSegment)}${segment.children.length !== 0 || !currentSettings.input.voidElements.includes(segment.name)?`</${segment.name}>`:""}`;

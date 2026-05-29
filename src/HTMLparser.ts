@@ -97,7 +97,7 @@ const cloneSegment = <T extends Segment & (RootSegment | TextSegment | TagSegmen
 }
 
 const removeEmptyTextNodesFromSegment = (root: RootSegment | TagSegment, check: (segment: Segment)=>boolean = antiRecursiveReferenceGenerator()): void => {
-    if(check(root))
+    if(!check(root))
         return;
     for(let i = 0; i<root.children.length;){
         const segment = root.children[i];
@@ -135,7 +135,7 @@ const htmlNormalize = (root: RootSegment | TagSegment): void => {
 }
 
 const internalNormalize = (root: RootSegment | TagSegment, check: (segment: Segment)=>boolean = antiRecursiveReferenceGenerator()): void => {
-    if(check(root))
+    if(!check(root))
     return;
     if(root.type === 'tag'){
         let i = 0;
@@ -168,13 +168,15 @@ const internalNormalize = (root: RootSegment | TagSegment, check: (segment: Segm
                     internalNormalize(currentNode, check);
                 }
             }
+            i++;
+            currentNode = root.children[i];
         }
     }
 }
 
 const mutateSegmentsByTextNode = (root: RootSegment | TagSegment, callback: (string: string, segment: Segment)=>string, check: (segment: Segment)=>boolean = antiRecursiveReferenceGenerator()): RootSegment | TagSegment => {
     root.children = root.children.map(segment => {
-        if(check(segment))
+        if(!check(segment))
             return segment;
         if(segment.type === 'text'){
             segment.text = callback(segment.text, segment);
@@ -195,11 +197,11 @@ const createBlockRepresentation = (root: RootSegment | TagSegment, check: (segme
     const blocks: SegmentCollection = [[]];
     
     if(root.children.length === 0){
-        throw new Error('Root has no children; expected at least 1 text segment');
+        return blocks;
     }
     for(let i = 0; i<root.children.length; i++){
         const segment = root.children[i] as TagSegment | TextSegment;
-        if(check(segment))
+        if(!check(segment))
             continue;
         if(i%2 === 0 && segment.type !== 'text'){
             throw new Error('Root has a non-text segment at an odd index');
@@ -222,7 +224,7 @@ const createBlockRepresentation = (root: RootSegment | TagSegment, check: (segme
                 blocks.at(-1)?.push(...first);
                 blocks.push(...result);
             }
-            if(currentSettings.input.inlineElements.includes(tagSegment.name)){
+            else if(currentSettings.input.inlineElements.includes(tagSegment.name)){
                 const result = createBlockRepresentation(tagSegment, check, ignore);
                 const first = result.shift() as TextSegment[];
                 blocks.at(-1)?.push(...first);
@@ -260,30 +262,62 @@ const mutateSegmentsByTextBlock = (root: RootSegment | TagSegment, callback: (te
     blocks.forEach(block=>{
         block.newString = callback(block.oldString);
 
-        const diffs = diff.diffChars(block.oldString, block.newString)
-        let currentString = '';
-        let currentIndex = 0;
+        const diffs = diff.diffChars(block.oldString, block.newString);
+        let newText = '';
+        let oldPos = 0;
         let currentContainer = 0;
-        for(let i = 0; i<diffs.length; i++){
-            currentString += diffs[i]?.value as string;
-            if(!diffs[i]?.removed){
-                currentIndex += diffs[i]?.value.length as number;
-            }
-            if(currentIndex >= (block.containers?.[currentContainer]?.end as number) &&  currentContainer !== block.containers.length - 1){
+
+        const isLastContainer = () => currentContainer === block.containers.length - 1;
+
+        const advanceIfAtBoundary = () => {
+            while(currentContainer < block.containers.length - 1 && oldPos >= (block.containers[currentContainer]?.end ?? 0)){
                 const conta = block.containers[currentContainer];
                 if(conta){
-                conta.segment.text = currentString;
-                currentString = '';
-                currentContainer++;
+                    conta.segment.text = newText;
+                    newText = '';
+                    currentContainer++;
                 }
             }
-            else if(block.containers.length - 1){
-                const conta = block.containers[currentContainer];
-                if(conta){
-                conta.segment.text = currentString;
+        };
+
+        // Pre-advance past zero-length containers at the start (assign '' to them)
+        advanceIfAtBoundary();
+
+        for(let i = 0; i < diffs.length; i++){
+            const chunk = diffs[i];
+            if(!chunk) continue;
+            if(chunk.added){
+                newText += chunk.value;
+                advanceIfAtBoundary();
+            } else if(chunk.removed){
+                oldPos += chunk.value.length;
+                // Don't advance when followed by an added chunk — they form a replacement pair
+                // that belongs to the same container
+                if(!diffs[i + 1]?.added){
+                    advanceIfAtBoundary();
+                }
+            } else {
+                // Unchanged — distribute characters across containers
+                let pos = 0;
+                while(pos < chunk.value.length){
+                    advanceIfAtBoundary();
+                    const currentEnd = block.containers[currentContainer]?.end ?? Infinity;
+                    const spaceToBoundary = currentEnd - oldPos;
+                    const chars = spaceToBoundary > 0
+                        ? Math.min(chunk.value.length - pos, spaceToBoundary)
+                        : chunk.value.length - pos;
+                    newText += chunk.value.slice(pos, pos + chars);
+                    oldPos += chars;
+                    pos += chars;
+                }
+                advanceIfAtBoundary();
             }
         }
-    }
+
+        const conta = block.containers[currentContainer];
+        if(conta){
+            conta.segment.text = newText;
+        }
     });
     return root;
 }

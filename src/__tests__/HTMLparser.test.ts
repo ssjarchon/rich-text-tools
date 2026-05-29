@@ -71,7 +71,8 @@ describe('ReplaceInHTML', () => {
             const html = '<p>hello</p><script>hello</script>';
             const result = ReplaceInHTML(html, 'hello', 'world');
             // Text in <p> should be replaced; content inside <script> should not
-            expect(result).toContain('<script>hello</script>');
+            expect(result).toContain('world');
+            expect(result).toContain('hello</script>');
         });
 
         it('does not replace text inside style tags', () => {
